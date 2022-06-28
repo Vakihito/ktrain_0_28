@@ -301,7 +301,95 @@ def texts_from_df(train_df,
     preproc.ytransform.le = ytransdf.le
     return (trn, val, preproc)
 
+def texts_from_df_preproc(train_df, 
+                   text_column,
+                   preproc,
+                   label_columns = [],
+                   val_df=None,
+                   val_pct=0.1, 
+                   lang=None, # auto-detected
+                   is_regression=False,
+                   random_state=None,
+                   verbose=1):
+    """
+    ```
+    Loads text data from Pandas dataframe file. Class labels are assumed to be
+    one of the following formats:
+        1. one-hot-encoded or multi-hot-encoded arrays representing classes:
+              Example with label_columns=['positive', 'negative'] and text_column='text':
+                text|positive|negative
+                I like this movie.|1|0
+                I hated this movie.|0|1
+            Classification will have a single one in each row: [[1,0,0], [0,1,0]]]
+            Multi-label classification will have one more ones in each row: [[1,1,0], [0,1,1]]
+        2. labels are in a single column of string or integer values representing class labels
+               Example with label_columns=['label'] and text_column='text':
+                 text|label
+                 I like this movie.|positive
+                 I hated this movie.|negative
+       3. labels are a single column of numerical values for text regression
+          NOTE: Must supply is_regression=True for integer labels to be treated as numerical targets
+                 wine_description|wine_price
+                 Exquisite wine!|100
+                 Wine for budget shoppers|8
 
+    Args:
+        train_df(dataframe): Pandas dataframe
+        text_column(str): name of column containing the text
+        label_columns(list): list of columns that are to be treated as labels
+        val_df(dataframe): file path to test dataframe.  If not supplied,
+                               10% of documents in training df will be
+                               used for testing/validation.
+        max_features(int): max num of words to consider in vocabulary.
+                           Note: This is only used for preprocess_mode='standard'.
+        maxlen(int): each document can be of most <maxlen> words. 0 is used as padding ID.
+        ngram_range(int): size of multi-word phrases to consider
+                          e.g., 2 will consider both 1-word phrases and 2-word phrases
+                               limited by max_features
+        val_pct(float): Proportion of training to use for validation.
+                        Has no effect if val_filepath is supplied.
+        preprocess_mode (str):  Either 'standard' (normal tokenization) or one of {'bert', 'distilbert'}
+                                tokenization and preprocessing for use with 
+                                BERT/DistilBert text classification model.
+        lang (str):            language.  Auto-detected if None.
+        is_regression(bool):  If True, integer targets will be treated as numerical targets instead of class IDs
+        random_state(int):      If integer is supplied, train/test split is reproducible.
+                                If None, train/test split will be random
+        verbose (boolean): verbosity
+    ```
+    """
+
+    # read in train and test data
+    train_df = train_df.copy()
+    train_df[text_column].fillna('fillna', inplace=True)
+    if val_df is not None:
+        val_df = val_df.copy()
+        val_df[text_column].fillna('fillna', inplace=True)
+    else:
+        train_df, val_df = train_test_split(train_df, test_size=val_pct, random_state=random_state)
+
+    # transform labels
+    ytransdf = U.YTransformDataFrame(label_columns, is_regression=is_regression)
+    t_df = ytransdf.apply_train(train_df)
+    v_df = ytransdf.apply_test(val_df)
+    class_names = ytransdf.get_classes()
+    new_lab_cols = ytransdf.get_label_columns(squeeze=True)
+    x_train = t_df[text_column].values
+    y_train = t_df[new_lab_cols].values
+    x_test = v_df[text_column].values
+    y_test = v_df[new_lab_cols].values
+
+    # detect language
+    if lang is None: lang = TU.detect_lang(x_train)
+
+
+    # return preprocessed the texts
+
+    trn = preproc.preprocess_train(x_train, y_train, verbose=verbose)
+    val = preproc.preprocess_test(x_test,  y_test, verbose=verbose)
+    # QUICKFIX for #314
+    preproc.ytransform.le = ytransdf.le
+    return (trn, val, preproc)
 
 def texts_from_array(x_train, y_train, x_test=None, y_test=None, 
                    class_names = [],
